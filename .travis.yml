@@ -7,3 +7,5 @@ before_install:
   - test/bin/start-minio
 
 language: node_js
+node_js:
+  - "10"
