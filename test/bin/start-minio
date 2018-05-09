@@ -1,0 +1,8 @@
+#!/bin/sh
+
+exec docker run --name blob-collections-test-minio \
+  -e MINIO_ACCESS_KEY=Y0147NYK7VO1SQIKQHTW \
+  -e 'MINIO_SECRET_KEY=CbKvZiqYsKfruamlxD6ZVk36w5puMSI/zCbgZo8H' \
+  -p 9000:9000 \
+  -d \
+  minio/minio server /data

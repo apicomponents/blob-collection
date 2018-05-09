@@ -1,0 +1,4 @@
+#!/bin/sh
+
+docker stop blob-collections-test-minio
+docker rm blob-collections-test-minio
