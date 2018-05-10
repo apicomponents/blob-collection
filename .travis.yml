@@ -9,3 +9,6 @@ before_install:
 language: node_js
 node_js:
   - "10"
+
+before_script:
+  - yarn build

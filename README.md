@@ -1,6 +1,6 @@
 # blob-collections
 
-[![Build Status](https://travis-ci.com/apicomponents/blob-collection.svg?branch=master)](https://travis-ci.org/apicomponents/blob-collection)
+[![Build Status](https://travis-ci.com/apicomponents/blob-collection.svg?branch=master)](https://travis-ci.com/apicomponents/blob-collection)
 
 A collection of documents with MongoDB style IDs, stored on top of a
 blobstore like S3.
