@@ -3,12 +3,14 @@
   "main": "./lib/BlobCollection",
   "devDependencies": {
     "aws-sdk": "^2.235.1",
+    "faker": "^4.1.0",
     "jest": "^22.4.3"
   },
   "scripts": {
     "test": "jest"
   },
   "dependencies": {
-    "bson-objectid": "^1.2.3"
+    "bson-objectid": "^1.2.3",
+    "lru-cache": "^4.1.3"
   }
 }
