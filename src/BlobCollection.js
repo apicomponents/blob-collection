@@ -1,5 +1,7 @@
 const ObjectID = require('bson-objectid')
 const lruCache = require('lru-cache')
+const takeWhile = require('lodash.takewhile')
+const takeRight = require('lodash.takeright')
 
 function isoDate(date) {
   return date.toISOString().substr(0, 10)
@@ -27,13 +29,9 @@ class BlobCollection {
     }
 
     let ids = await this.listDate(date)
-    let i;
-    for (i = 0; i < ids.length && ids[i][0] < cutoff; i++) {
-      // do nothing
-    }
-    ids = ids.slice(0, i)
+    ids = takeWhile(ids, ([id, etag]) => id < cutoff)
 
-    return ids.slice(Math.min(ids.length - limit, 100)).map(([id, etag]) => {
+    return takeRight(ids, limit).map(([id, etag]) => {
       const metadata = this.metadataCache.get(
         [id, etag, this.defaultMetadata].join(',')
       )
@@ -52,7 +50,7 @@ class BlobCollection {
       const match = e.Key.match(/([0-9a-f]{24})[^\/]*$/)
       const key = match && match[1]
       return [key, e.ETag]
-    }).filter(e => e[0] && e[1])
+    }).filter(([id, etag]) => id && etag)
   }
 
   async get(id) {
@@ -65,25 +63,38 @@ class BlobCollection {
   }
 
   async put(doc) {
-    const id = doc._id ? doc._id.toString() : ObjectID().toString()
-    const docData = Object.assign({}, doc, {_id: id})
-    const key = this.keyForDocument(docData._id)
+    const docWithId = this.constructor.ensureStringId(doc)
+    const key = this.keyForDocument(docWithId._id)
     const result = await this.client.putObject({
-      Body: JSON.stringify(doc),
+      Body: JSON.stringify(docWithId),
       ContentType: 'application/json',
       Bucket: this.bucket,
       Key: key
     }).promise()
     this.metadataCache.set(
-      [doc._id, result.ETag, this.defaultMetadata].join(','),
-      this.metadata[this.defaultMetadata](doc)
+      [docWithId._id, result.ETag, this.defaultMetadata].join(','),
+      this.metadata[this.defaultMetadata](docWithId)
     )
-    return { _id: docData._id }
+    return { _id: docWithId._id }
   }
 
   keyForDocument(id) {
     const date = ObjectID(id).getTimestamp()
     return `${this.prefix}${isoDate(date)}/${id}.json`
+  }
+
+  static ensureStringId(doc) {
+    if (doc._id === undefined) {
+      return Object.assign({}, doc, {_id: ObjectID().toString()})
+    } else if (typeof doc._id === 'string' && doc._id.length === 24) {
+      return doc
+    } else {
+      let id = doc._id.toString()
+      if (id.length !== 24) {
+        id = ObjectID().toString()
+      }
+      return Object.assign({}, doc, {_id: id})
+    }
   }
 }
 

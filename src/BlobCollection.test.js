@@ -27,14 +27,10 @@ test('put and get a document with an id', async () => {
 })
 
 describe('list docs within a day', () => {
-  const bucket = `test-blob-collections-${ObjectID()}`
-  const prefix = 'people/'
-
-  beforeAll(async () => {
-    await client.createBucket({Bucket: bucket}).promise()
-  })
-
   test('create all the docs and list them', async () => {
+    const bucket = `test-blob-collections-${ObjectID()}`
+    const prefix = 'people/'
+    await client.createBucket({Bucket: bucket}).promise()
     const collection = new BlobCollection({
       client,
       bucket,
@@ -51,13 +47,13 @@ describe('list docs within a day', () => {
     const nowDate = new Date()
     const now = Math.floor(nowDate.valueOf() / 1000)
     let offsets = []
+    for (let i=0; i < 97; i++) {
+      offsets.push(-1 * Math.floor(Math.random() * 30 * 60))
+    }
     for (let i=0; i < 3; i++) {
       offsets.push(Math.floor(Math.random() * 5 * 60))
     }
-    for (let i=0; i < 150; i++) {
-      offsets.push(-Math.floor(Math.random() * 30 * 60))
-    }
-    offsets.sort()
+    offsets.sort((a, b) => a - b)
     const docs = offsets.map(offset => ({
       _id: ObjectID(now + offset).toString(),
       name: faker.name.findName(),
@@ -68,7 +64,7 @@ describe('list docs within a day', () => {
       state: faker.address.stateAbbr(),
       zipCode: faker.address.zipCode()
     }))
-    let remainingDocs = docs
+    let remainingDocs = docs.slice()
     while (remainingDocs.length) {
       const batch = remainingDocs.slice(0, 10)
       remainingDocs = remainingDocs.slice(10)
@@ -84,9 +80,24 @@ describe('list docs within a day', () => {
     }).promise()
     const directKeys = directResponse.Contents.map(e => e.Key)
     expect(directKeys.length).toEqual(100)
+    const directIds = directKeys.map(key => {
+      const match = key.match(/([0-9a-f]{24})[^\/]*$/)
+      return match && match[1]
+    })
 
     // get the list
     const docs2 = await collection.list()
+    const unsortedKeys1 = docs.map(doc => doc._id)
+    const sortedKeys1 = unsortedKeys1.slice()
+    sortedKeys1.sort()
+    const unsortedKeys2 = docs2.map(doc => doc._id)
+    const sortedKeys2 = unsortedKeys2.slice()
+    sortedKeys2.sort()
+    expect(unsortedKeys1).toEqual(sortedKeys1)
+    expect(unsortedKeys2).toEqual(sortedKeys2)
+    expect(sortedKeys1.length).toEqual(sortedKeys2.length)
+    expect(sortedKeys2).toEqual(directIds)
+    expect(sortedKeys1).toEqual(sortedKeys2)
     expect(docs2.length).toEqual(100)
     expect(docs2[docs2.length - 1]._id).toEqual(docs[docs.length - 1]._id)
 
