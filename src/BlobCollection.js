@@ -37,7 +37,7 @@ class BlobCollection {
       const metadata = this.metadataCache.get(
         [id, etag, this.defaultMetadata].join(',')
       )
-      return { _id: id, ...metadata }
+      return Object.assign({}, metadata, {_id: id})
     })
   }
 
@@ -66,7 +66,7 @@ class BlobCollection {
 
   async put(doc) {
     const id = doc._id ? doc._id.toString() : ObjectID().toString()
-    const docData = {...doc, _id: id }
+    const docData = Object.assign({}, doc, {_id: id})
     const key = this.keyForDocument(docData._id)
     const result = await this.client.putObject({
       Body: JSON.stringify(doc),
