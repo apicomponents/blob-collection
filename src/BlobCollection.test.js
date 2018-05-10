@@ -1,5 +1,6 @@
 const ObjectID = require('bson-objectid')
 const faker = require('faker')
+const takeRight = require('lodash.takeright')
 const AWS = require('aws-sdk')
 const client = new AWS.S3({
   endpoint: 'http://127.0.0.1:9000',
@@ -47,7 +48,7 @@ describe('list docs within a day', () => {
     const nowDate = new Date()
     const now = Math.floor(nowDate.valueOf() / 1000)
     let offsets = []
-    for (let i=0; i < 97; i++) {
+    for (let i=0; i < 150; i++) {
       offsets.push(-1 * Math.floor(Math.random() * 30 * 60))
     }
     for (let i=0; i < 3; i++) {
@@ -80,14 +81,10 @@ describe('list docs within a day', () => {
     }).promise()
     const directKeys = directResponse.Contents.map(e => e.Key)
     expect(directKeys.length).toEqual(100)
-    const directIds = directKeys.map(key => {
-      const match = key.match(/([0-9a-f]{24})[^\/]*$/)
-      return match && match[1]
-    })
 
     // get the list
     const docs2 = await collection.list()
-    const unsortedKeys1 = docs.map(doc => doc._id)
+    const unsortedKeys1 = takeRight(docs, 100).map(doc => doc._id)
     const sortedKeys1 = unsortedKeys1.slice()
     sortedKeys1.sort()
     const unsortedKeys2 = docs2.map(doc => doc._id)
@@ -96,7 +93,6 @@ describe('list docs within a day', () => {
     expect(unsortedKeys1).toEqual(sortedKeys1)
     expect(unsortedKeys2).toEqual(sortedKeys2)
     expect(sortedKeys1.length).toEqual(sortedKeys2.length)
-    expect(sortedKeys2).toEqual(directIds)
     expect(sortedKeys1).toEqual(sortedKeys2)
     expect(docs2.length).toEqual(100)
     expect(docs2[docs2.length - 1]._id).toEqual(docs[docs.length - 1]._id)
