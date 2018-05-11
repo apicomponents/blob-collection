@@ -7,15 +7,20 @@ function isoDate(date) {
   return date.toISOString().substr(0, 10)
 }
 
+DEFAULT_VIEW = {
+  version: 'default',
+  map: doc => ({}),
+  filter: undefined // same effect as ({}) => true
+}
+
 class BlobCollection {
-  constructor({client, bucket, prefix, metadata, defaultMetadata}) {
+  constructor({client, bucket, prefix, view}) {
     this.client = client
     this.bucket = bucket
     this.prefix = prefix
-    this.metadata = metadata || { defaultMetadata: ({_id}) => ({}) }
-    this.defaultMetadata = defaultMetadata || 'defaultMetadata'
+    this.view = Object.assign({}, DEFAULT_VIEW, (view || {}))
 
-    this.metadataCache = lruCache({max: 500})
+    this.viewCache = lruCache({max: 500})
   }
 
   async list(before = null, limit = 100) {
@@ -31,12 +36,18 @@ class BlobCollection {
     let ids = await this.listDate(date)
     ids = takeWhile(ids, ([id, etag]) => id < cutoff)
 
-    return takeRight(ids, limit).map(([id, etag]) => {
-      const metadata = this.metadataCache.get(
-        [id, etag, this.defaultMetadata].join(',')
+    let docs = takeRight(ids, limit).map(([id, etag]) => {
+      const viewData = this.viewCache.get(
+        [id, etag, this.view.version].join(',')
       )
-      return Object.assign({}, metadata, {_id: id})
+      return Object.assign({}, viewData, {_id: id, _etag: etag})
     })
+    if (this.view.filter) {
+      // TODO: if this reduces the number of docs below the limit,
+      // add some that were removed because of the limit
+      docs = docs.filter(doc => this.view.filter(doc))
+    }
+    return docs
   }
 
   async listDate(date) {
@@ -53,7 +64,7 @@ class BlobCollection {
     }).filter(([id, etag]) => id && etag)
   }
 
-  async get(id) {
+  async get(id, etag = undefined) {
     const key = this.keyForDocument(id)
     const response = await this.client.getObject({
       Bucket: this.bucket,
@@ -71,9 +82,10 @@ class BlobCollection {
       Bucket: this.bucket,
       Key: key
     }).promise()
-    this.metadataCache.set(
-      [docWithId._id, result.ETag, this.defaultMetadata].join(','),
-      this.metadata[this.defaultMetadata](docWithId)
+    // TODO: pass updated date to view function
+    this.viewCache.set(
+      [docWithId._id, result.ETag, this.view.version].join(','),
+      this.view.map(docWithId, {})
     )
     return { _id: docWithId._id }
   }

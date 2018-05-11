@@ -36,9 +36,8 @@ describe('list docs within a day', () => {
       client,
       bucket,
       prefix,
-      defaultMetadata: 'v1',
-      metadata: {
-        v1: doc => ({
+      view: {
+        map: doc => ({
           name: doc.name
         })
       }
@@ -96,6 +95,9 @@ describe('list docs within a day', () => {
     expect(sortedKeys1).toEqual(sortedKeys2)
     expect(docs2.length).toEqual(100)
     expect(docs2[docs2.length - 1]._id).toEqual(docs[docs.length - 1]._id)
+    expect(
+      Object.keys(docs2[0]).slice().sort()
+    ).toEqual(['_id', '_etag', 'name'].sort())
 
     // get the list without the cache
     // await collection.clearCache()
