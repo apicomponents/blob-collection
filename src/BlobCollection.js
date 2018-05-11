@@ -1,35 +1,50 @@
+//@flow
 const S3Store = require('./S3Store')
 const DatePartition = require('./DatePartition');
 const ObjectID = require('bson-objectid')
-const lruCache = require('lru-cache')
 const takeWhile = require('lodash.takewhile')
 const takeRight = require('lodash.takeright')
+const lruCache = require('lru-cache')
 
-function isoDate(date) {
+function isoDate(date: any) {
   return date.toISOString().substr(0, 10)
 }
 
-DEFAULT_VIEW = {
+type View = {
+  version: string,
+  map: ({}, {}) => {},
+  filter: {} => boolean
+}
+
+const DEFAULT_VIEW = {
   version: 'default',
   map: doc => ({}),
   filter: undefined // same effect as ({}) => true
 }
 
 class BlobCollection {
-  get client() { return this.store.client }
-  get bucket() { return this.store.bucket }
-  get prefix() { return this.store.prefix }
+  store: S3Store
+  view: View
+  viewCache: lruCache.LRUCache<string, {}>
+  datePartitions: {}
 
-  constructor({client, bucket, prefix, view}) {
+  get client(): any { return this.store.client }
+  get bucket(): string { return this.store.bucket }
+  get prefix(): string { return this.store.prefix }
+
+  constructor({client, bucket, prefix, view}:
+              {client: any, bucket: string, prefix: string,
+              view: { version?: string, map?: any, filter?: any }}) {
     this.store = new S3Store({client, bucket, prefix})
     this.view = Object.assign({}, DEFAULT_VIEW, (view || {}))
 
-    this.datePartitions = {}
     this.viewCache = lruCache({max: 500})
+
+    this.datePartitions = {}
   }
 
-  async list(before = null, limit = 100) {
-    let date, cutoff
+  async list(before: any = null, limit: number = 100): {}[] {
+    let date: Date, cutoff
     if (before) {
       date = ObjectID(before).getTimestamp()
       cutoff = before
@@ -42,14 +57,15 @@ class BlobCollection {
     let ids = await datePartition.listKeys()
     ids = takeWhile(ids, ([id, etag]) => id < cutoff)
 
-    let docs = Promise.all(takeRight(ids, limit).map(([id, etag]) => (
+    let docs = await Promise.all(takeRight(ids, limit).map(([id, etag]) => (
       this.getViewData(id, etag)
     )))
-    if (this.view.filter) {
+    if (typeof this.view.filter === 'function') {
       // TODO: if this reduces the number of docs below the limit,
       // add some that were removed because of the limit
       docs = docs.filter(doc => this.view.filter(doc))
     }
+    // $FlowFixMe: Promise.all
     return docs
   }
 
@@ -66,11 +82,11 @@ class BlobCollection {
     }
   }
 
-  async get(id, etag = undefined) {
+  async get(id: string, etag?: string): any {
     return await this.getDatePartition(id).get(id, etag)
   }
 
-  async put(doc) {
+  async put(doc: any): any {
     const docWithId = this.constructor.ensureStringId(doc)
     const key = this.keyForDocument(docWithId._id)
     const result = await this.client.putObject({
@@ -83,14 +99,14 @@ class BlobCollection {
     return { _id: docWithId._id }
   }
 
-  async getViewData(id, etag) {
+  async getViewData(id: string, etag: string): {} {
     const viewData = this.viewCache.get(
       [id, etag, this.view.version].join(',')
     )
     return Object.assign({}, viewData, {_id: id, _etag: etag})
   }
 
-  setViewData(doc, etag) {
+  setViewData(doc: any, etag: any) {
     // TODO: pass updated date to view function
     this.viewCache.set(
       [doc._id, etag, this.view.version].join(','),
@@ -98,12 +114,12 @@ class BlobCollection {
     )
   }
 
-  keyForDocument(id) {
+  keyForDocument(id: string): string {
     const date = ObjectID(id).getTimestamp()
     return `${this.prefix}${isoDate(date)}/${id}.json`
   }
 
-  static ensureStringId(doc) {
+  static ensureStringId(doc: any): any {
     if (doc._id === undefined) {
       return Object.assign({}, doc, {_id: ObjectID().toString()})
     } else if (typeof doc._id === 'string' && doc._id.length === 24) {
