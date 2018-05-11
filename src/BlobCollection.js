@@ -1,3 +1,5 @@
+const S3Store = require('./S3Store')
+const DatePartition = require('./DatePartition');
 const ObjectID = require('bson-objectid')
 const lruCache = require('lru-cache')
 const takeWhile = require('lodash.takewhile')
@@ -14,12 +16,16 @@ DEFAULT_VIEW = {
 }
 
 class BlobCollection {
+  get client() { return this.store.client }
+  get bucket() { return this.store.bucket }
+  get prefix() { return this.store.prefix }
+
   constructor({client, bucket, prefix, view}) {
-    this.client = client
-    this.bucket = bucket
-    this.prefix = prefix
+    this.store = new S3Store({client, bucket, prefix})
     this.view = Object.assign({}, DEFAULT_VIEW, (view || {}))
 
+    this.currentDatePartitions = {}
+    this.datePartitionCache = lruCache({max: 10})
     this.viewCache = lruCache({max: 500})
   }
 
@@ -33,7 +39,8 @@ class BlobCollection {
       cutoff = ObjectID(Math.floor(date / 1000)).toString()
     }
 
-    let ids = await this.listDate(date)
+    const datePartition = this.getDatePartition(date)
+    let ids = await datePartition.listKeys()
     ids = takeWhile(ids, ([id, etag]) => id < cutoff)
 
     let docs = takeRight(ids, limit).map(([id, etag]) => {
@@ -50,18 +57,15 @@ class BlobCollection {
     return docs
   }
 
-  async listDate(date) {
-    const response = await this.client.listObjectsV2({
-      Bucket: this.bucket,
-      MaxKeys: 1000,
-      Prefix: `${this.prefix}${isoDate(date)}/`,
-      Delimiter: '/'
-    }).promise()
-    return response.Contents.map(e => {
-      const match = e.Key.match(/([0-9a-f]{24})[^\/]*$/)
-      const key = match && match[1]
-      return [key, e.ETag]
-    }).filter(([id, etag]) => id && etag)
+  getDatePartition(date) {
+    const dateString = isoDate(date)
+    if (this.currentDatePartitions[dateString]) {
+      return this.currentDatePartitions[dateString]
+    } else {
+      this.currentDatePartitions[dateString] =
+        new DatePartition({store: this.store, date})
+      return this.currentDatePartitions[dateString]
+    }
   }
 
   async get(id, etag = undefined) {
