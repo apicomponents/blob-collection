@@ -42,12 +42,9 @@ class BlobCollection {
     let ids = await datePartition.listKeys()
     ids = takeWhile(ids, ([id, etag]) => id < cutoff)
 
-    let docs = takeRight(ids, limit).map(([id, etag]) => {
-      const viewData = this.viewCache.get(
-        [id, etag, this.view.version].join(',')
-      )
-      return Object.assign({}, viewData, {_id: id, _etag: etag})
-    })
+    let docs = Promise.all(takeRight(ids, limit).map(([id, etag]) => (
+      this.getViewData(id, etag)
+    )))
     if (this.view.filter) {
       // TODO: if this reduces the number of docs below the limit,
       // add some that were removed because of the limit
@@ -82,12 +79,23 @@ class BlobCollection {
       Bucket: this.bucket,
       Key: key
     }).promise()
+    this.setViewData(docWithId, result.ETag)
+    return { _id: docWithId._id }
+  }
+
+  async getViewData(id, etag) {
+    const viewData = this.viewCache.get(
+      [id, etag, this.view.version].join(',')
+    )
+    return Object.assign({}, viewData, {_id: id, _etag: etag})
+  }
+
+  setViewData(doc, etag) {
     // TODO: pass updated date to view function
     this.viewCache.set(
-      [docWithId._id, result.ETag, this.view.version].join(','),
-      this.view.map(docWithId, {})
+      [doc._id, etag, this.view.version].join(','),
+      this.view.map(doc, {})
     )
-    return { _id: docWithId._id }
   }
 
   keyForDocument(id) {
