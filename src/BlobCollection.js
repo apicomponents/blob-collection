@@ -24,8 +24,7 @@ class BlobCollection {
     this.store = new S3Store({client, bucket, prefix})
     this.view = Object.assign({}, DEFAULT_VIEW, (view || {}))
 
-    this.currentDatePartitions = {}
-    this.datePartitionCache = lruCache({max: 10})
+    this.datePartitions = {}
     this.viewCache = lruCache({max: 500})
   }
 
@@ -57,24 +56,21 @@ class BlobCollection {
     return docs
   }
 
-  getDatePartition(date) {
+  getDatePartition(dateOrId) {
+    const date = (typeof dateOrId.toISOString === 'function'
+                  ? dateOrId : ObjectID(dateOrId).getTimestamp())
     const dateString = isoDate(date)
-    if (this.currentDatePartitions[dateString]) {
-      return this.currentDatePartitions[dateString]
+    if (this.datePartitions[dateString]) {
+      return this.datePartitions[dateString]
     } else {
-      this.currentDatePartitions[dateString] =
+      this.datePartitions[dateString] =
         new DatePartition({store: this.store, date})
-      return this.currentDatePartitions[dateString]
+      return this.datePartitions[dateString]
     }
   }
 
   async get(id, etag = undefined) {
-    const key = this.keyForDocument(id)
-    const response = await this.client.getObject({
-      Bucket: this.bucket,
-      Key: key
-    }).promise()
-    return JSON.parse(response.Body.toString('utf8'))
+    return await this.getDatePartition(id).get(id, etag)
   }
 
   async put(doc) {

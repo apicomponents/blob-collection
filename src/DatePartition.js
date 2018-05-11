@@ -15,6 +15,15 @@ class DatePartition {
     this.date = date
   }
 
+  async get(id, etag = undefined) {
+    const key = `${this.prefix}${this.isoDate}/${id}.json`
+    const response = await this.client.getObject({
+      Bucket: this.bucket,
+      Key: key
+    }).promise()
+    return JSON.parse(response.Body.toString('utf8'))
+  }
+
   async listKeys() {
     const response = await this.client.listObjectsV2({
       Bucket: this.bucket,
