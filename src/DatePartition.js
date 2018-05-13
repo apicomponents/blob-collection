@@ -1,5 +1,8 @@
 // @flow
 const S3Store = require("./S3Store");
+const lruCache = require("lru-cache");
+const takeWhile = require("lodash.takewhile");
+const takeRight = require("lodash.takeright");
 
 type View = {
   version: string,
@@ -12,6 +15,7 @@ class DatePartition {
   view: View;
   date: Date;
   _isoDate: string;
+  viewCache: lruCache.LRUCache<string, {}>;
 
   get client() {
     return this.store.client;
@@ -42,6 +46,8 @@ class DatePartition {
     this.store = store;
     this.view = view;
     this.date = date;
+
+    this.viewCache = lruCache({ max: 500 });
   }
 
   async get(id: string, etag?: string): {} {
@@ -53,6 +59,34 @@ class DatePartition {
       })
       .promise();
     return JSON.parse(response.Body.toString("utf8"));
+  }
+
+  async put(doc: any) {
+    const key = `${this.prefix}${this.isoDate}/${doc._id}.json`;
+    const result = await this.client
+      .putObject({
+        Body: JSON.stringify(doc),
+        ContentType: "application/json",
+        Bucket: this.bucket,
+        Key: key
+      })
+      .promise();
+    this.setViewData(doc, result.ETag);
+  }
+
+  async list(beforeCutoff: string, limit: number = 100) {
+    let ids = await this.listKeys();
+    ids = takeWhile(ids, ([id, etag]) => id < beforeCutoff);
+
+    let docs = await Promise.all(
+      takeRight(ids, limit).map(([id, etag]) => this.getViewData(id, etag))
+    );
+    if (typeof this.view.filter === "function") {
+      // TODO: if this reduces the number of docs below the limit,
+      // add some that were removed because of the limit
+      docs = docs.filter(doc => this.view.filter(doc));
+    }
+    return docs;
   }
 
   async listKeys(): Promise<[string, string][]> {
@@ -71,6 +105,21 @@ class DatePartition {
       const key = (match && match[1]) || "";
       return [key, e.ETag];
     }).filter(([id, etag]) => id && etag);
+  }
+
+  async getViewData(id: string, etag: string): {} {
+    const viewData = this.viewCache.get(
+      [id, etag, this.view.version].join(",")
+    );
+    return Object.assign({}, viewData, { _id: id, _etag: etag });
+  }
+
+  setViewData(doc: any, etag: any) {
+    // TODO: pass updated date to view function
+    this.viewCache.set(
+      [doc._id, etag, this.view.version].join(","),
+      this.view.map(doc, {})
+    );
   }
 }
 

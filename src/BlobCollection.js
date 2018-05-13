@@ -1,10 +1,8 @@
 //@flow
+const debug = require("debug")("blob-collection");
 const S3Store = require("./S3Store");
 const DatePartition = require("./DatePartition");
 const ObjectID = require("bson-objectid");
-const takeWhile = require("lodash.takewhile");
-const takeRight = require("lodash.takeright");
-const lruCache = require("lru-cache");
 
 function isoDate(date: any) {
   return date.toISOString().substr(0, 10);
@@ -25,7 +23,6 @@ const DEFAULT_VIEW = {
 class BlobCollection {
   store: S3Store;
   view: View;
-  viewCache: lruCache.LRUCache<string, {}>;
   datePartitions: {};
 
   get client(): any {
@@ -49,10 +46,8 @@ class BlobCollection {
     prefix: string,
     view: { version?: string, map?: any, filter?: any }
   }) {
-    this.store = new S3Store({ client, bucket, prefix });
+    this.store = new S3Store({ client, bucket, prefix: prefix || "" });
     this.view = Object.assign({}, DEFAULT_VIEW, view || {});
-
-    this.viewCache = lruCache({ max: 500 });
 
     this.datePartitions = {};
   }
@@ -68,17 +63,7 @@ class BlobCollection {
     }
 
     const datePartition = this.getDatePartition(date);
-    let ids = await datePartition.listKeys();
-    ids = takeWhile(ids, ([id, etag]) => id < cutoff);
-
-    let docs = await Promise.all(
-      takeRight(ids, limit).map(([id, etag]) => this.getViewData(id, etag))
-    );
-    if (typeof this.view.filter === "function") {
-      // TODO: if this reduces the number of docs below the limit,
-      // add some that were removed because of the limit
-      docs = docs.filter(doc => this.view.filter(doc));
-    }
+    const docs = await datePartition.list({ beforeCutoff: cutoff, limit });
     // $FlowFixMe: Promise.all
     return docs;
   }
@@ -94,6 +79,7 @@ class BlobCollection {
     } else {
       this.datePartitions[dateString] = new DatePartition({
         store: this.store,
+        view: this.view,
         date
       });
       return this.datePartitions[dateString];
@@ -106,32 +92,8 @@ class BlobCollection {
 
   async put(doc: any): any {
     const docWithId = this.constructor.ensureStringId(doc);
-    const key = this.keyForDocument(docWithId._id);
-    const result = await this.client
-      .putObject({
-        Body: JSON.stringify(docWithId),
-        ContentType: "application/json",
-        Bucket: this.bucket,
-        Key: key
-      })
-      .promise();
-    this.setViewData(docWithId, result.ETag);
+    await this.getDatePartition(docWithId._id).put(docWithId);
     return { _id: docWithId._id };
-  }
-
-  async getViewData(id: string, etag: string): {} {
-    const viewData = this.viewCache.get(
-      [id, etag, this.view.version].join(",")
-    );
-    return Object.assign({}, viewData, { _id: id, _etag: etag });
-  }
-
-  setViewData(doc: any, etag: any) {
-    // TODO: pass updated date to view function
-    this.viewCache.set(
-      [doc._id, etag, this.view.version].join(","),
-      this.view.map(doc, {})
-    );
   }
 
   keyForDocument(id: string): string {

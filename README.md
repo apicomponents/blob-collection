@@ -9,10 +9,10 @@ BSON IDs (the kind of IDs used by MongoDB) include the dates and times, and
 `blob-collection` partitions the data in directories by date. It's optimized for
 lookup of documents by time (think chat, email, or logs).
 
-Documents can be looked up with a _before_ value and a _limit_. It will load up
-to _limit_ documents before the _before_ value, which can be a BSON ID or a
-date. It may not load all, but it will load at least one if one is available
-(subject to caching).
+Documents can be listed with a _before_ value and a _limit_. It will load up to
+_limit_ documents before the _before_ value, which can be a BSON ID or a date.
+It may not load all, but it will load at least one if one is available (subject
+to caching).
 
 Documents have views for metadata, kind of like CouchDB, but much less powerful.
 At present it only supports one view, and the view takes a `version` which is
@@ -30,6 +30,78 @@ with the version of the view, so stale data will never be returned.
 
 It's designed to prevent a lightly used app that has a lot of data in it from
 being expensive.
+
+## How it works
+
+* BlobCollection.new
+  * Doesn't make any requests to S3
+* Collection.put(doc)
+  * Puts the document into `${isoDate}/${id}.json`
+  * Puts the view data into memory
+  * Gets the list of dates from `manifest.json`
+  * If the date isn't in the list of dates, adds it and writes out the manifest
+    file
+  * after one second, or immediately if the date wasn't in the manifest, reads
+    `views/${isoDate}.json`, adds the view data to it, and writes it.
+* Collection.get(doc)
+  * Gets the document from `${isoDate}/${id}.json` and returns it
+* Collection.delete(doc)
+  * Deletes the document from `${isoDate}/${id}.json`
+  * Puts the deletion into memory
+  * After one second, reads `views/${isoDate}.json`, removes the document from
+    it, and writes it
+* Collection.list(before)
+  * Gets the list of dates from `manifest.json`
+  * Finds the first date to look at
+  * Gets `indexes/${isoDate}.json` and `views/${isoDate}.json`. If the view is
+    newer, lists the objects in the Blobstore to regenerate the index, and
+    writes it back. Reads the view data into memory.
+  * Gets the requested number of documents from the index, and the view data.
+    Tries to get the view data from memory first, and if it isn't found, reads
+    the documents to get the view data.
+  * If there aren't enough to satisfy the limit, goes to the previous date in
+    the manifest and gets more, until it reaches the limit of dates to read.
+
+## API
+
+### Creating a BlobCollection
+
+To create a collection, provide an S3 client, an S3 bucket, an optional prefix,
+and a view function which determines which data will be available in the index,
+as well as a view version to allow updates to the view function:
+
+```javascript
+const client = require("./clients").S3Client;
+const bucket = "my-nifty-blog";
+const map = doc => {
+  const summary = doc.body.substring(0, 100);
+  return { title: doc.title, title: doc.author, summary };
+};
+const view = { map, version: "v1" };
+const collection = new BlobCollection({
+  client,
+  bucket,
+  prefix: "posts",
+  view
+});
+```
+
+Parameters:
+
+* `new BlobCollection({...params})`
+  * `params.client`: An S3 Client from [aws-sdk][aws-sdk]
+  * `params.bucket` (string): The S3 bucket
+  * `params.prefix` (string): Optional. The prefix for the files. Example:
+    `posts/`
+  * `params.view` (`viewParams`)
+    * `viewParams.map` (`object => object`): Optional. This is called with the
+      document and returns an object that is used when creating the view.
+    * `viewParams.filter` (`object => boolean`): Optional. This is called with
+      the document and if it returns false, the document will be excluded when listing the data.
+    * `viewParams.version`: Optional. The version that will be used when
+      storing and retrieving view documents. Provides the ability to update the
+      view without manually deleting the view documents and restarting the
+      servers.
 
 ## Releases
 
@@ -70,3 +142,4 @@ MIT
 [s3-flaws-blog-post]: https://medium.com/@jim_dowling/reflections-on-s3s-architectural-flaws-71f14c05a5fa
 [s3mper]: https://github.com/Netflix/s3mper
 [emrfs]: https://docs.aws.amazon.com/emr/latest/ManagementGuide/emr-fs.html
+[aws-sdk]: https://aws.amazon.com/sdk-for-node-js/
