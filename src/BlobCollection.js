@@ -68,16 +68,37 @@ class BlobCollection {
       cutoff = `${ObjectID(Math.floor(date / 1000))}`;
     }
 
-    const datePartition = this.getDatePartition(date);
-    const docs = await datePartition.list(cutoff, limit);
+    const dateString = isoDate(date);
+    const datePartition = this.getDatePartition(dateString);
+    let docs = await datePartition.list(cutoff, limit);
+    if (docs.length < limit) {
+      let dates = this.manifest.getDatesBefore(dateString, 4);
+      for (let i = dates.length - 1; i >= 0; i--) {
+        const dateString = dates[i];
+        const datePartition = this.getDatePartition(dateString);
+        let previousDocs = await datePartition.list(
+          cutoff,
+          limit - docs.length
+        );
+        docs = previousDocs.concat(docs);
+        if (docs.length === limit) {
+          break;
+        }
+      }
+    }
     // $FlowFixMe: Promise.all
     return docs;
   }
 
-  getDatePartition(dateOrId) {
-    const date =
-      dateOrId instanceof Date ? dateOrId : ObjectID(dateOrId).getTimestamp();
-    const dateString = isoDate(date);
+  getDatePartition(dateOrId: Date | string) {
+    let dateString;
+    if (dateOrId instanceof Date) {
+      dateString = isoDate(dateOrId);
+    } else if (dateOrId.length === 10) {
+      dateString = dateOrId;
+    } else {
+      dateString = isoDate(ObjectID(dateOrId).getTimestamp());
+    }
     if (this.datePartitions[dateString]) {
       return this.datePartitions[dateString];
     } else {
@@ -85,7 +106,7 @@ class BlobCollection {
         store: this.store,
         view: this.view,
         manifest: this.manifest,
-        date
+        date: dateString
       });
       return this.datePartitions[dateString];
     }

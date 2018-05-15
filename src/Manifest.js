@@ -33,6 +33,11 @@ class Manifest {
     return `${this.store.prefix}manifest.json`;
   }
 
+  getDatesBefore(date: string, limit: number): string[] {
+    const index = sortedIndex(this.dates, date);
+    return this.dates.slice(index - limit, index);
+  }
+
   async load() {
     if (!this.promise) {
       let updated = false;

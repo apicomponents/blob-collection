@@ -21,8 +21,7 @@ class DatePartition {
   store: S3Store;
   view: View;
   manifest: Manifest;
-  date: Date;
-  _isoDate: string;
+  date: string;
   viewCache: { [string]: { [string]: any } };
   loadPromise: ?Promise<void>;
   savePromise: ?Promise<void>;
@@ -40,15 +39,8 @@ class DatePartition {
     return this.store.prefix;
   }
 
-  get isoDate() {
-    if (!this._isoDate) {
-      this._isoDate = this.date.toISOString().substr(0, 10);
-    }
-    return this._isoDate;
-  }
-
   get key() {
-    return `${this.prefix}views/${this.isoDate}.json`;
+    return `${this.prefix}views/${this.date}.json`;
   }
 
   constructor({
@@ -60,7 +52,7 @@ class DatePartition {
     store: S3Store,
     view: View,
     manifest: Manifest,
-    date: Date
+    date: string
   }) {
     this.store = store;
     this.view = view;
@@ -73,7 +65,7 @@ class DatePartition {
   }
 
   async get(id: string): Promise<DocWithEtag> {
-    const key = `${this.prefix}${this.isoDate}/${id}.json`;
+    const key = `${this.prefix}${this.date}/${id}.json`;
     const response = await this.client
       .getObject({
         Bucket: this.bucket,
@@ -87,7 +79,7 @@ class DatePartition {
   }
 
   async put(doc: any): Promise<DocWithEtag> {
-    const key = `${this.prefix}${this.isoDate}/${doc._id}.json`;
+    const key = `${this.prefix}${this.date}/${doc._id}.json`;
     const response = await this.client
       .putObject({
         Body: JSON.stringify(doc),
@@ -98,7 +90,7 @@ class DatePartition {
       .promise();
     doc._etag = response.ETag;
     this.setViewData(doc);
-    this.manifest.addDate(this.isoDate);
+    this.manifest.addDate(this.date);
     return { _id: doc._id, _etag: doc._etag };
   }
 
@@ -106,13 +98,18 @@ class DatePartition {
     let ids = await this.listKeys();
     ids = takeWhile(ids, ([id, etag]) => id < beforeCutoff);
 
-    let docs = await Promise.all(
-      takeRight(ids, limit).map(([id, etag]) => this.getViewData(id, etag))
-    );
+    let docs;
     if (typeof this.view.filter === "function") {
-      // TODO: if this reduces the number of docs below the limit,
-      // add some that were removed because of the limit
+      docs = await Promise.all(
+        ids.map(([id, etag]) => this.getViewData(id, etag))
+      );
       docs = docs.filter(doc => this.view.filter(doc));
+      docs = takeRight(docs, limit);
+    } else {
+      ids = takeRight(ids, limit);
+      docs = await Promise.all(
+        ids.map(([id, etag]) => this.getViewData(id, etag))
+      );
     }
     return docs;
   }
@@ -124,7 +121,7 @@ class DatePartition {
       .listObjectsV2({
         Bucket: this.bucket,
         MaxKeys: 1000,
-        Prefix: `${this.prefix}${this.isoDate}/`,
+        Prefix: `${this.prefix}${this.date}/`,
         Delimiter: "/"
       })
       .promise();
