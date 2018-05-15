@@ -1,12 +1,10 @@
 //@flow
-const debug = require("debug")("blob-collection");
 const S3Store = require("./S3Store");
 const DatePartition = require("./DatePartition");
+const Manifest = require("./Manifest");
 const ObjectID = require("bson-objectid");
-
-function isoDate(date: any) {
-  return date.toISOString().substr(0, 10);
-}
+const values = require("./utils").values;
+const isoDate = require("./utils").isoDate;
 
 type View = {
   version: string,
@@ -23,7 +21,8 @@ const DEFAULT_VIEW = {
 class BlobCollection {
   store: S3Store;
   view: View;
-  datePartitions: {};
+  manifest: Manifest;
+  datePartitions: { [string]: DatePartition };
 
   get client(): any {
     return this.store.client;
@@ -48,31 +47,36 @@ class BlobCollection {
   }) {
     this.store = new S3Store({ client, bucket, prefix: prefix || "" });
     this.view = Object.assign({}, DEFAULT_VIEW, view || {});
+    this.manifest = new Manifest({ store: this.store });
 
     this.datePartitions = {};
   }
 
-  async list(before: any = null, limit: number = 100): {}[] {
-    let date: Date, cutoff;
-    if (before) {
+  async list(before?: Date | string, limit: number = 100): {}[] {
+    let date: Date;
+    let cutoff: string;
+    if (typeof before === "string") {
       date = ObjectID(before).getTimestamp();
       cutoff = before;
+    } else if (before instanceof Date) {
+      date = before;
+      cutoff = `${ObjectID.createFromTime(
+        Math.floor(date.valueOf() / 1000) + 1
+      )}`;
     } else {
       date = new Date(Date.now() + 10 * 60 * 1000);
-      cutoff = ObjectID(Math.floor(date / 1000)).toString();
+      cutoff = `${ObjectID(Math.floor(date / 1000))}`;
     }
 
     const datePartition = this.getDatePartition(date);
-    const docs = await datePartition.list({ beforeCutoff: cutoff, limit });
+    const docs = await datePartition.list(cutoff, limit);
     // $FlowFixMe: Promise.all
     return docs;
   }
 
   getDatePartition(dateOrId) {
     const date =
-      typeof dateOrId.toISOString === "function"
-        ? dateOrId
-        : ObjectID(dateOrId).getTimestamp();
+      dateOrId instanceof Date ? dateOrId : ObjectID(dateOrId).getTimestamp();
     const dateString = isoDate(date);
     if (this.datePartitions[dateString]) {
       return this.datePartitions[dateString];
@@ -80,14 +84,15 @@ class BlobCollection {
       this.datePartitions[dateString] = new DatePartition({
         store: this.store,
         view: this.view,
+        manifest: this.manifest,
         date
       });
       return this.datePartitions[dateString];
     }
   }
 
-  async get(id: string, etag?: string): any {
-    return await this.getDatePartition(id).get(id, etag);
+  async get(id: string): any {
+    return await this.getDatePartition(id).get(id);
   }
 
   async put(doc: any): any {
@@ -112,6 +117,12 @@ class BlobCollection {
         id = ObjectID().toString();
       }
       return Object.assign({}, doc, { _id: id });
+    }
+  }
+
+  clearCache() {
+    for (const datePartition of values(this.datePartitions)) {
+      datePartition.clearCache();
     }
   }
 }

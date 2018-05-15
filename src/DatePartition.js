@@ -1,8 +1,9 @@
 // @flow
 const S3Store = require("./S3Store");
 const lruCache = require("lru-cache");
-const takeWhile = require("lodash.takewhile");
-const takeRight = require("lodash.takeright");
+const takeWhile = require("lodash").takeWhile;
+const takeRight = require("lodash").takeRight;
+const Manifest = require("./Manifest");
 
 type View = {
   version: string,
@@ -10,9 +11,16 @@ type View = {
   filter: ({}) => boolean
 };
 
+type DocWithEtag = {
+  _id: string,
+  _etag: string,
+  [string]: any
+};
+
 class DatePartition {
   store: S3Store;
   view: View;
+  manifest: Manifest;
   date: Date;
   _isoDate: string;
   viewCache: lruCache.LRUCache<string, {}>;
@@ -37,20 +45,23 @@ class DatePartition {
   constructor({
     store,
     view,
+    manifest,
     date
   }: {
     store: S3Store,
     view: View,
+    manifest: Manifest,
     date: Date
   }) {
     this.store = store;
     this.view = view;
+    this.manifest = manifest;
     this.date = date;
 
     this.viewCache = lruCache({ max: 500 });
   }
 
-  async get(id: string, etag?: string): {} {
+  async get(id: string): Promise<DocWithEtag> {
     const key = `${this.prefix}${this.isoDate}/${id}.json`;
     const response = await this.client
       .getObject({
@@ -58,12 +69,15 @@ class DatePartition {
         Key: key
       })
       .promise();
-    return JSON.parse(response.Body.toString("utf8"));
+    const doc = JSON.parse(response.Body.toString("utf8"));
+    doc._etag = response.ETag;
+    this.setViewData(doc);
+    return doc;
   }
 
-  async put(doc: any) {
+  async put(doc: any): Promise<DocWithEtag> {
     const key = `${this.prefix}${this.isoDate}/${doc._id}.json`;
-    const result = await this.client
+    const response = await this.client
       .putObject({
         Body: JSON.stringify(doc),
         ContentType: "application/json",
@@ -71,7 +85,10 @@ class DatePartition {
         Key: key
       })
       .promise();
-    this.setViewData(doc, result.ETag);
+    doc._etag = response.ETag;
+    this.setViewData(doc);
+    this.manifest.addDate(this.isoDate);
+    return { _id: doc._id, _etag: doc._etag };
   }
 
   async list(beforeCutoff: string, limit: number = 100) {
@@ -108,18 +125,26 @@ class DatePartition {
   }
 
   async getViewData(id: string, etag: string): {} {
-    const viewData = this.viewCache.get(
-      [id, etag, this.view.version].join(",")
-    );
+    const viewKey = [id, etag, this.view.version].join(",");
+    let viewData = this.viewCache.get(viewKey);
+    if (viewData === undefined) {
+      const doc = await this.get(id);
+      const updatedViewKey = [id, doc._etag, this.view.version].join(",");
+      viewData = this.viewCache.get(updatedViewKey);
+    }
     return Object.assign({}, viewData, { _id: id, _etag: etag });
   }
 
-  setViewData(doc: any, etag: any) {
+  setViewData(doc: DocWithEtag) {
     // TODO: pass updated date to view function
     this.viewCache.set(
-      [doc._id, etag, this.view.version].join(","),
+      [doc._id, doc._etag, this.view.version].join(","),
       this.view.map(doc, {})
     );
+  }
+
+  clearCache() {
+    this.viewCache.reset();
   }
 }
 

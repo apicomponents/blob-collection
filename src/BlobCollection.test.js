@@ -1,7 +1,8 @@
 const ObjectID = require("bson-objectid");
 const faker = require("faker");
-const takeRight = require("lodash.takeright");
+const takeRight = require("lodash").takeRight;
 const AWS = require("aws-sdk");
+const isoDate = require("./utils").isoDate;
 const client = new AWS.S3({
   endpoint: "http://127.0.0.1:9000",
   accessKeyId: "Y0147NYK7VO1SQIKQHTW",
@@ -9,17 +10,14 @@ const client = new AWS.S3({
   s3ForcePathStyle: true
 });
 const BlobCollection = require("./BlobCollection");
-const bucket = `test-blob-collections-${ObjectID()}`;
 
-function isoDate(date) {
-  return date.toISOString().substr(0, 10);
-}
-
-beforeAll(async () => {
-  await client.createBucket({ Bucket: bucket }).promise();
+afterEach(() => {
+  jest.restoreAllMocks();
 });
 
 test("put and get a document with an id", async () => {
+  const bucket = `test-blob-collections-${ObjectID()}`;
+  await client.createBucket({ Bucket: bucket }).promise();
   const collection = new BlobCollection({ client, bucket, prefix: "animals/" });
   const doc = { _id: "5af27c83e2c74b359df5fa14", message: "turtles" };
   await collection.put(doc);
@@ -44,6 +42,7 @@ describe("list docs within a day", () => {
     });
 
     // add the docs
+    const spy = jest.spyOn(collection.manifest, "saveToBlob");
     const nowDate = new Date();
     const now = Math.floor(nowDate.valueOf() / 1000);
     let offsets = [];
@@ -84,6 +83,7 @@ describe("list docs within a day", () => {
       .promise();
     const directKeys = directResponse.Contents.map(e => e.Key);
     expect(directKeys.length).toEqual(100);
+    expect(spy).toHaveBeenCalledTimes(1);
 
     // get the list
     const docs2 = await collection.list();
@@ -106,9 +106,9 @@ describe("list docs within a day", () => {
     ).toEqual(["_id", "_etag", "name"].sort());
 
     // get the list without the cache
-    // await collection.clearCache()
-    // const docs3 = await collection.list()
-    // expect(docs3.length).toEqual(100)
+    collection.clearCache();
+    const docs3 = await collection.list();
+    expect(docs3.length).toEqual(100);
   });
 });
 
