@@ -11,6 +11,7 @@ const client = new AWS.S3({
   s3ForcePathStyle: true
 });
 const BlobCollection = require("./BlobCollection");
+const delayMultiplier = process.env.CI === "true" ? 1.5 : 1;
 
 afterEach(() => {
   jest.restoreAllMocks();
@@ -110,7 +111,7 @@ test("list docs within a day", async () => {
   ).toEqual(["_id", "_etag", "name"].sort());
 
   // get the list without the cache
-  await delay(3);
+  await delay(delayMultiplier * 2);
   const loadSpy = jest.spyOn(datePartition, "loadFromBlob");
   const getSpy = jest.spyOn(datePartition, "get");
   collection.clearCache();

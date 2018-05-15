@@ -2,20 +2,11 @@
 const S3Store = require("./S3Store");
 const takeWhile = require("lodash").takeWhile;
 const takeRight = require("lodash").takeRight;
+const compact = require("lodash").compact;
 const delay = require("./utils").delay;
 const Manifest = require("./Manifest");
 
-type View = {
-  version: string,
-  map: ({}, {}) => {},
-  filter: ({}) => boolean
-};
-
-type DocWithEtag = {
-  _id: string,
-  _etag: string,
-  [string]: any
-};
+import type { View, DocWithEtag } from "./types";
 
 class DatePartition {
   store: S3Store;
@@ -64,30 +55,23 @@ class DatePartition {
     this.saveAgain = false;
   }
 
-  async get(id: string): Promise<DocWithEtag> {
-    const key = `${this.prefix}${this.date}/${id}.json`;
-    const response = await this.client
-      .getObject({
-        Bucket: this.bucket,
-        Key: key
-      })
-      .promise();
-    const doc = JSON.parse(response.Body.toString("utf8"));
-    doc._etag = response.ETag;
-    this.setViewData(doc);
-    return doc;
-  }
-
   async put(doc: any): Promise<DocWithEtag> {
     const key = `${this.prefix}${this.date}/${doc._id}.json`;
-    const response = await this.client
-      .putObject({
-        Body: JSON.stringify(doc),
-        ContentType: "application/json",
-        Bucket: this.bucket,
-        Key: key
-      })
-      .promise();
+    let response;
+    try {
+      response = await this.client
+        .putObject({
+          Body: JSON.stringify(doc),
+          ContentType: "application/json",
+          Bucket: this.bucket,
+          Key: key
+        })
+        .promise();
+    } catch (err) {
+      throw new Error(
+        `Error saving doc with ID ${JSON.stringify(doc._id)}: ${err}`
+      );
+    }
     doc._etag = response.ETag;
     this.setViewData(doc);
     this.manifest.addDate(this.date);
@@ -103,13 +87,14 @@ class DatePartition {
       docs = await Promise.all(
         ids.map(([id, etag]) => this.getViewData(id, etag))
       );
-      docs = docs.filter(doc => this.view.filter(doc));
+      docs = compact(docs).filter(doc => this.view.filter(doc));
       docs = takeRight(docs, limit);
     } else {
       ids = takeRight(ids, limit);
       docs = await Promise.all(
         ids.map(([id, etag]) => this.getViewData(id, etag))
       );
+      docs = compact(docs);
     }
     return docs;
   }
@@ -132,7 +117,7 @@ class DatePartition {
     }).filter(([id, etag]) => id && etag);
   }
 
-  async getViewData(id: string, etag: string): {} {
+  async getViewData(id: string, etag: string): Promise<?{}> {
     const viewKey = [id, etag, this.view.version].join(",");
     let viewData = this.viewCache[viewKey];
     if (viewData === undefined) {
@@ -140,9 +125,17 @@ class DatePartition {
       viewData = this.viewCache[viewKey];
     }
     if (viewData === undefined) {
-      const doc = await this.get(id);
-      const updatedViewKey = [id, doc._etag, this.view.version].join(",");
-      viewData = this.viewCache[updatedViewKey];
+      let doc = await this.get(id);
+      if (doc === undefined) {
+        await this.store.retryDelay();
+        doc = await this.get(id);
+      }
+      if (doc === undefined) {
+        return;
+      } else {
+        const updatedViewKey = [id, doc._etag, this.view.version].join(",");
+        viewData = this.viewCache[updatedViewKey];
+      }
     }
     return Object.assign({}, viewData, { _id: id, _etag: etag });
   }
@@ -154,13 +147,37 @@ class DatePartition {
     this.save();
   }
 
+  async get(id: string): Promise<DocWithEtag | void> {
+    const key = `${this.prefix}${this.date}/${id}.json`;
+    let response;
+    try {
+      response = await this.client
+        .getObject({
+          Bucket: this.bucket,
+          Key: key
+        })
+        .promise();
+    } catch (err) {
+      return;
+    }
+    const doc = JSON.parse(response.Body.toString("utf8"));
+    doc._etag = response.ETag;
+    this.setViewData(doc);
+    return doc;
+  }
+
   async loadFromBlob(): Promise<void> {
-    const response = await this.client
-      .getObject({
-        Bucket: this.bucket,
-        Key: this.key
-      })
-      .promise();
+    let response;
+    try {
+      response = await this.client
+        .getObject({
+          Bucket: this.bucket,
+          Key: this.key
+        })
+        .promise();
+    } catch (err) {
+      return;
+    }
     const data = JSON.parse(response.Body.toString("utf8"));
     this.loadJSON(data);
     this.lastLoaded = Date.now();
@@ -208,14 +225,19 @@ class DatePartition {
 
   async saveToBlob(): Promise<void> {
     this.saving = true;
-    await this.client
-      .putObject({
-        Body: JSON.stringify(this),
-        ContentType: "application/json",
-        Bucket: this.bucket,
-        Key: this.key
-      })
-      .promise();
+    try {
+      await this.client
+        .putObject({
+          Body: JSON.stringify(this),
+          ContentType: "application/json",
+          Bucket: this.bucket,
+          Key: this.key
+        })
+        .promise();
+    } catch (err) {
+      this.saving = false;
+      return;
+    }
     this.saving = false;
   }
 

@@ -6,11 +6,7 @@ const ObjectID = require("bson-objectid");
 const values = require("./utils").values;
 const isoDate = require("./utils").isoDate;
 
-type View = {
-  version: string,
-  map: ({}, {}) => {},
-  filter: ({}) => boolean
-};
+import type { View, DocWithEtag } from "./types";
 
 const DEFAULT_VIEW = {
   version: "default",
@@ -112,7 +108,7 @@ class BlobCollection {
     }
   }
 
-  async get(id: string): any {
+  async get(id: string): Promise<?DocWithEtag> {
     return await this.getDatePartition(id).get(id);
   }
 

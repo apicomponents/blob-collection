@@ -43,7 +43,12 @@ class Manifest {
       let updated = false;
       this.promise = Promise.race([
         async () => {
-          const data = await this.loadFromBlob();
+          let data;
+          try {
+            data = await this.loadFromBlob();
+          } catch (err) {
+            return;
+          }
           // prefer loading from list to loading from blob
           if (!updated) {
             this.loadJSON(data);
@@ -53,7 +58,12 @@ class Manifest {
         async () => {
           await delay(1000);
           if (updated) return;
-          const dates = await this.loadFromList();
+          let dates;
+          try {
+            dates = await this.loadFromList();
+          } catch (err) {
+            return;
+          }
           const datesChanged = this.addDates(dates);
           if (datesChanged) {
             this.save();
