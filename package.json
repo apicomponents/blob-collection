@@ -1,5 +1,7 @@
 {
   "name": "blob-collections",
+  "version": "0.1.0",
+  "author": "Benjamin Atkin <ben@benatkin.com> (https://benatkin.com/)",
   "main": "./lib/BlobCollection",
   "dependencies": {
     "bson-objectid": "^1.2.3",
