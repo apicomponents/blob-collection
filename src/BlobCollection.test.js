@@ -42,7 +42,9 @@ test("list docs within a day", async () => {
   });
 
   // add the docs
+  const datePartition = collection.getDatePartition(new Date());
   const spy = jest.spyOn(collection.manifest, "saveToBlob");
+  const spy2 = jest.spyOn(datePartition, "saveToBlobAfterDelay");
   const nowDate = new Date();
   const now = Math.floor(nowDate.valueOf() / 1000);
   let offsets = [];
@@ -84,6 +86,8 @@ test("list docs within a day", async () => {
   const directKeys = directResponse.Contents.map(e => e.Key);
   expect(directKeys.length).toEqual(100);
   expect(spy).toHaveBeenCalledTimes(1);
+  expect(spy2.mock.calls.length).toBeGreaterThanOrEqual(1);
+  expect(spy2.mock.calls.length).toBeLessThanOrEqual(3);
 
   // get the list
   const docs2 = await collection.list();
@@ -107,11 +111,13 @@ test("list docs within a day", async () => {
 
   // get the list without the cache
   await delay(2);
-  const getSpy = jest.spyOn(collection.getDatePartition(new Date()), "get");
+  const loadSpy = jest.spyOn(datePartition, "loadFromBlob");
+  const getSpy = jest.spyOn(datePartition, "get");
   collection.clearCache();
   const docs3 = await collection.list();
   expect(docs3.length).toEqual(100);
-  // expect(getSpy.mock.calls.length).toBeLessThan(10);
+  expect(loadSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
+  expect(getSpy.mock.calls.length).toBeLessThan(10);
 });
 
 /*describe('list docs spread across days', () => {

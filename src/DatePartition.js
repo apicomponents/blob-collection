@@ -24,8 +24,10 @@ class DatePartition {
   date: Date;
   _isoDate: string;
   viewCache: { [string]: { [string]: any } };
-  savePromise: Promise<void>;
+  loadPromise: ?Promise<void>;
+  savePromise: ?Promise<void>;
   saving: boolean;
+  saveAgain: boolean;
   lastLoaded: number;
 
   get client() {
@@ -43,6 +45,10 @@ class DatePartition {
       this._isoDate = this.date.toISOString().substr(0, 10);
     }
     return this._isoDate;
+  }
+
+  get key() {
+    return `${this.prefix}views/${this.isoDate}.json`;
   }
 
   constructor({
@@ -63,6 +69,7 @@ class DatePartition {
 
     this.viewCache = {};
     this.saving = false;
+    this.saveAgain = false;
   }
 
   async get(id: string): Promise<DocWithEtag> {
@@ -133,6 +140,9 @@ class DatePartition {
     let viewData = this.viewCache[viewKey];
     if (viewData === undefined) {
       await this.load();
+      viewData = this.viewCache[viewKey];
+    }
+    if (viewData === undefined) {
       const doc = await this.get(id);
       const updatedViewKey = [id, doc._etag, this.view.version].join(",");
       viewData = this.viewCache[updatedViewKey];
@@ -147,18 +157,78 @@ class DatePartition {
     this.save();
   }
 
+  async loadFromBlob(): Promise<void> {
+    const response = await this.client
+      .getObject({
+        Bucket: this.bucket,
+        Key: this.key
+      })
+      .promise();
+    const data = JSON.parse(response.Body.toString("utf8"));
+    this.loadJSON(data);
+    this.lastLoaded = Date.now();
+  }
+
   async load(): Promise<void> {
-    // const loadedRecently =
-    //   this.lastLoaded !== undefined && Date.now() - this.lastLoaded < 60 * 1000;
-    // if (!loadedRecently) {
-    //   this.lastLoaded = Date.now();
-    // }
+    if (this.loadPromise) {
+      await this.loadPromise;
+      return;
+    }
+
+    const loadedRecently =
+      this.lastLoaded !== undefined && Date.now() - this.lastLoaded < 60 * 1000;
+    if (!loadedRecently) {
+      await this.loadFromBlob();
+      this.loadPromise = undefined;
+    }
   }
 
   async save(): Promise<void> {
-    // if (this.savePromise) {
-    //   await Promise.all([this.load(), delay(1000)]);
-    // }
+    if (this.savePromise) {
+      if (this.saving) {
+        this.saveAgain = true;
+      }
+      await this.savePromise;
+      if (this.saveAgain) {
+        this.saveAgain = false;
+        this.savePromise = this.saveToBlobAfterDelay();
+        await this.savePromise;
+        this.savePromise = undefined;
+      }
+      return;
+    }
+
+    this.savePromise = this.saveToBlobAfterDelay();
+    await this.savePromise;
+    this.savePromise = undefined;
+  }
+
+  async saveToBlobAfterDelay(): Promise<void> {
+    await delay(1000);
+    await this.saveToBlob();
+  }
+
+  async saveToBlob(): Promise<void> {
+    this.saving = true;
+    await this.client
+      .putObject({
+        Body: JSON.stringify(this),
+        ContentType: "application/json",
+        Bucket: this.bucket,
+        Key: this.key
+      })
+      .promise();
+    this.saving = false;
+  }
+
+  loadJSON(data: { data: { [string]: any } }): void {
+    Object.assign(this.viewCache, data.data);
+  }
+
+  toJSON(): { data: { [string]: any } } {
+    return {
+      data: this.viewCache
+    };
   }
 
   clearCache() {
