@@ -110,7 +110,7 @@ test("list docs within a day", async () => {
   ).toEqual(["_id", "_etag", "name"].sort());
 
   // get the list without the cache
-  await delay(2);
+  await delay(3);
   const loadSpy = jest.spyOn(datePartition, "loadFromBlob");
   const getSpy = jest.spyOn(datePartition, "get");
   collection.clearCache();
