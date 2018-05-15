@@ -55,6 +55,37 @@ class DatePartition {
     this.saveAgain = false;
   }
 
+  async get(id: string): Promise<DocWithEtag | void> {
+    const key = `${this.prefix}${this.date}/${id}.json`;
+    let response;
+    try {
+      response = await this.getKey(key);
+    } catch (err) {
+      response = undefined;
+    }
+    if (response === undefined) {
+      await this.store.retryDelay();
+      try {
+        response = await this.getKey(key);
+      } catch (err) {
+        return;
+      }
+    }
+    const doc = JSON.parse(response.Body.toString("utf8"));
+    doc._etag = response.ETag;
+    this.setViewData(doc);
+    return doc;
+  }
+
+  getKey(key: string): Promise<any> {
+    return this.client
+      .getObject({
+        Bucket: this.bucket,
+        Key: key
+      })
+      .promise();
+  }
+
   async put(doc: any): Promise<DocWithEtag> {
     const key = `${this.prefix}${this.date}/${doc._id}.json`;
     let response;
@@ -127,10 +158,6 @@ class DatePartition {
     if (viewData === undefined) {
       let doc = await this.get(id);
       if (doc === undefined) {
-        await this.store.retryDelay();
-        doc = await this.get(id);
-      }
-      if (doc === undefined) {
         return;
       } else {
         const updatedViewKey = [id, doc._etag, this.view.version].join(",");
@@ -145,25 +172,6 @@ class DatePartition {
     const viewKey = [doc._id, doc._etag, this.view.version].join(",");
     this.viewCache[viewKey] = this.view.map(doc, {});
     this.save();
-  }
-
-  async get(id: string): Promise<DocWithEtag | void> {
-    const key = `${this.prefix}${this.date}/${id}.json`;
-    let response;
-    try {
-      response = await this.client
-        .getObject({
-          Bucket: this.bucket,
-          Key: key
-        })
-        .promise();
-    } catch (err) {
-      return;
-    }
-    const doc = JSON.parse(response.Body.toString("utf8"));
-    doc._etag = response.ETag;
-    this.setViewData(doc);
-    return doc;
   }
 
   async loadFromBlob(): Promise<void> {
