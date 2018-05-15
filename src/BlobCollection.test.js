@@ -31,7 +31,7 @@ test("list docs within a day", async () => {
   const bucket = `test-blob-collections-${ObjectID()}`;
   const prefix = "people/";
   await client.createBucket({ Bucket: bucket }).promise();
-  const collection = new BlobCollection({
+  const collectionParams = {
     client,
     bucket,
     prefix,
@@ -40,7 +40,8 @@ test("list docs within a day", async () => {
         name: doc.name
       })
     }
-  });
+  };
+  const collection = new BlobCollection(collectionParams);
 
   // add the docs
   const datePartition = collection.getDatePartition(new Date());
@@ -112,10 +113,11 @@ test("list docs within a day", async () => {
 
   // get the list without the cache
   await delay(delayMultiplier * 2);
-  const loadSpy = jest.spyOn(datePartition, "loadFromBlob");
-  const getSpy = jest.spyOn(datePartition, "get");
-  collection.clearCache();
-  const docs3 = await collection.list();
+  const collection2 = new BlobCollection(collectionParams);
+  const datePartition2 = collection2.getDatePartition(new Date());
+  const loadSpy = jest.spyOn(datePartition2, "loadFromBlob");
+  const getSpy = jest.spyOn(datePartition2, "get");
+  const docs3 = await collection2.list();
   expect(docs3.length).toEqual(100);
   expect(loadSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
   expect(getSpy.mock.calls.length).toBeLessThan(10);

@@ -136,12 +136,6 @@ class BlobCollection {
       return Object.assign({}, doc, { _id: id });
     }
   }
-
-  clearCache() {
-    for (const datePartition of values(this.datePartitions)) {
-      datePartition.clearCache();
-    }
-  }
 }
 
 module.exports = BlobCollection;

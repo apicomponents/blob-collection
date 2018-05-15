@@ -18,7 +18,7 @@ class DatePartition {
   savePromise: ?Promise<void>;
   saving: boolean;
   saveAgain: boolean;
-  lastLoaded: number;
+  lastLoaded: ?number;
 
   get client() {
     return this.store.client;
@@ -114,6 +114,7 @@ class DatePartition {
     ids = takeWhile(ids, ([id, etag]) => id < beforeCutoff);
 
     let docs;
+    await this.load();
     if (typeof this.view.filter === "function") {
       docs = await Promise.all(
         ids.map(([id, etag]) => this.getViewData(id, etag))
@@ -177,12 +178,7 @@ class DatePartition {
   async loadFromBlob(): Promise<void> {
     let response;
     try {
-      response = await this.client
-        .getObject({
-          Bucket: this.bucket,
-          Key: this.key
-        })
-        .promise();
+      response = await this.getKey(this.key);
     } catch (err) {
       return;
     }
@@ -197,8 +193,13 @@ class DatePartition {
       return;
     }
 
-    const loadedRecently =
-      this.lastLoaded !== undefined && Date.now() - this.lastLoaded < 60 * 1000;
+    let loadedRecently = false;
+    if (this.lastLoaded !== undefined) {
+      const difference = Date.now() - (this.lastLoaded || 0);
+      if (difference < 60 * 1000) {
+        loadedRecently = true;
+      }
+    }
     if (!loadedRecently) {
       this.loadPromise = this.loadFromBlob();
       await this.loadPromise;
@@ -228,25 +229,22 @@ class DatePartition {
 
   async saveToBlobAfterDelay(): Promise<void> {
     await delay(1000);
+    this.saving = true;
+    await this.loadFromBlob();
     await this.saveToBlob();
+    this.saving = false;
   }
 
   async saveToBlob(): Promise<void> {
     this.saving = true;
-    try {
-      await this.client
-        .putObject({
-          Body: JSON.stringify(this),
-          ContentType: "application/json",
-          Bucket: this.bucket,
-          Key: this.key
-        })
-        .promise();
-    } catch (err) {
-      this.saving = false;
-      return;
-    }
-    this.saving = false;
+    await this.client
+      .putObject({
+        Body: JSON.stringify(this),
+        ContentType: "application/json",
+        Bucket: this.bucket,
+        Key: this.key
+      })
+      .promise();
   }
 
   loadJSON(data: { data: { [string]: any } }): void {
@@ -257,10 +255,6 @@ class DatePartition {
     return {
       data: this.viewCache
     };
-  }
-
-  clearCache() {
-    this.viewCache = {};
   }
 }
 
