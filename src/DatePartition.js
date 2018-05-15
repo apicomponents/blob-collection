@@ -1,8 +1,8 @@
 // @flow
 const S3Store = require("./S3Store");
-const lruCache = require("lru-cache");
 const takeWhile = require("lodash").takeWhile;
 const takeRight = require("lodash").takeRight;
+const delay = require("./utils").delay;
 const Manifest = require("./Manifest");
 
 type View = {
@@ -23,7 +23,10 @@ class DatePartition {
   manifest: Manifest;
   date: Date;
   _isoDate: string;
-  viewCache: lruCache.LRUCache<string, {}>;
+  viewCache: { [string]: { [string]: any } };
+  savePromise: Promise<void>;
+  saving: boolean;
+  lastLoaded: number;
 
   get client() {
     return this.store.client;
@@ -58,7 +61,8 @@ class DatePartition {
     this.manifest = manifest;
     this.date = date;
 
-    this.viewCache = lruCache({ max: 500 });
+    this.viewCache = {};
+    this.saving = false;
   }
 
   async get(id: string): Promise<DocWithEtag> {
@@ -126,25 +130,39 @@ class DatePartition {
 
   async getViewData(id: string, etag: string): {} {
     const viewKey = [id, etag, this.view.version].join(",");
-    let viewData = this.viewCache.get(viewKey);
+    let viewData = this.viewCache[viewKey];
     if (viewData === undefined) {
+      await this.load();
       const doc = await this.get(id);
       const updatedViewKey = [id, doc._etag, this.view.version].join(",");
-      viewData = this.viewCache.get(updatedViewKey);
+      viewData = this.viewCache[updatedViewKey];
     }
     return Object.assign({}, viewData, { _id: id, _etag: etag });
   }
 
   setViewData(doc: DocWithEtag) {
     // TODO: pass updated date to view function
-    this.viewCache.set(
-      [doc._id, doc._etag, this.view.version].join(","),
-      this.view.map(doc, {})
-    );
+    const viewKey = [doc._id, doc._etag, this.view.version].join(",");
+    this.viewCache[viewKey] = this.view.map(doc, {});
+    this.save();
+  }
+
+  async load(): Promise<void> {
+    // const loadedRecently =
+    //   this.lastLoaded !== undefined && Date.now() - this.lastLoaded < 60 * 1000;
+    // if (!loadedRecently) {
+    //   this.lastLoaded = Date.now();
+    // }
+  }
+
+  async save(): Promise<void> {
+    // if (this.savePromise) {
+    //   await Promise.all([this.load(), delay(1000)]);
+    // }
   }
 
   clearCache() {
-    this.viewCache.reset();
+    this.viewCache = {};
   }
 }
 

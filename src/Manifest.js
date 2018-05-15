@@ -10,7 +10,7 @@ class Manifest {
   dates: string[];
   lastUpdated: number;
   promise: Promise<any>;
-  savePromise: Promise<any>;
+  savePromise: ?Promise<any>;
   saveAgain: boolean;
 
   constructor({ store }: { store: S3Store }) {
@@ -94,11 +94,15 @@ class Manifest {
       if (this.saveAgain) {
         this.saveAgain = false;
         this.savePromise = this.saveToBlob();
+        await this.savePromise;
+        this.savePromise = undefined;
       }
-      return await this.savePromise;
+      return;
     }
 
     this.savePromise = this.saveToBlob();
+    await this.savePromise;
+    this.savePromise = undefined;
   }
 
   async saveToBlob(): Promise<void> {

@@ -17,6 +17,6 @@
   "scripts": {
     "build": "babel src/ -d lib/",
     "prepublish": "yarn run build",
-    "test": "jest"
+    "test": "jest lib"
   }
 }

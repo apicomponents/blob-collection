@@ -3,6 +3,7 @@ const faker = require("faker");
 const takeRight = require("lodash").takeRight;
 const AWS = require("aws-sdk");
 const isoDate = require("./utils").isoDate;
+const delay = require("./utils").delay;
 const client = new AWS.S3({
   endpoint: "http://127.0.0.1:9000",
   accessKeyId: "Y0147NYK7VO1SQIKQHTW",
@@ -25,91 +26,92 @@ test("put and get a document with an id", async () => {
   expect(theDoc).toEqual(doc);
 });
 
-describe("list docs within a day", () => {
-  test("create all the docs and list them", async () => {
-    const bucket = `test-blob-collections-${ObjectID()}`;
-    const prefix = "people/";
-    await client.createBucket({ Bucket: bucket }).promise();
-    const collection = new BlobCollection({
-      client,
-      bucket,
-      prefix,
-      view: {
-        map: doc => ({
-          name: doc.name
-        })
-      }
-    });
-
-    // add the docs
-    const spy = jest.spyOn(collection.manifest, "saveToBlob");
-    const nowDate = new Date();
-    const now = Math.floor(nowDate.valueOf() / 1000);
-    let offsets = [];
-    for (let i = 0; i < 150; i++) {
-      offsets.push(-1 * Math.floor(Math.random() * 30 * 60));
-    }
-    for (let i = 0; i < 3; i++) {
-      offsets.push(Math.floor(Math.random() * 5 * 60));
-    }
-    offsets.sort((a, b) => a - b);
-    const docs = offsets.map(offset => ({
-      _id: ObjectID(now + offset).toString(),
-      name: faker.name.findName(),
-      email: faker.internet.email(),
-      phone: faker.phone.phoneNumber(),
-      address: faker.address.streetAddress(),
-      city: faker.address.city(),
-      state: faker.address.stateAbbr(),
-      zipCode: faker.address.zipCode()
-    }));
-    let remainingDocs = docs.slice();
-    while (remainingDocs.length) {
-      const batch = remainingDocs.slice(0, 10);
-      remainingDocs = remainingDocs.slice(10);
-      await Promise.all(
-        batch.map(doc => {
-          return collection.put(doc);
-        })
-      );
-    }
-    const directResponse = await client
-      .listObjectsV2({
-        Bucket: bucket,
-        MaxKeys: 100,
-        Prefix: `${prefix}${isoDate(nowDate)}/`,
-        Delimiter: "/"
+test("list docs within a day", async () => {
+  const bucket = `test-blob-collections-${ObjectID()}`;
+  const prefix = "people/";
+  await client.createBucket({ Bucket: bucket }).promise();
+  const collection = new BlobCollection({
+    client,
+    bucket,
+    prefix,
+    view: {
+      map: doc => ({
+        name: doc.name
       })
-      .promise();
-    const directKeys = directResponse.Contents.map(e => e.Key);
-    expect(directKeys.length).toEqual(100);
-    expect(spy).toHaveBeenCalledTimes(1);
-
-    // get the list
-    const docs2 = await collection.list();
-    const unsortedKeys1 = takeRight(docs, 100).map(doc => doc._id);
-    const sortedKeys1 = unsortedKeys1.slice();
-    sortedKeys1.sort();
-    const unsortedKeys2 = docs2.map(doc => doc._id);
-    const sortedKeys2 = unsortedKeys2.slice();
-    sortedKeys2.sort();
-    expect(unsortedKeys1).toEqual(sortedKeys1);
-    expect(unsortedKeys2).toEqual(sortedKeys2);
-    expect(sortedKeys1.length).toEqual(sortedKeys2.length);
-    expect(sortedKeys1).toEqual(sortedKeys2);
-    expect(docs2.length).toEqual(100);
-    expect(docs2[docs2.length - 1]._id).toEqual(docs[docs.length - 1]._id);
-    expect(
-      Object.keys(docs2[0])
-        .slice()
-        .sort()
-    ).toEqual(["_id", "_etag", "name"].sort());
-
-    // get the list without the cache
-    collection.clearCache();
-    const docs3 = await collection.list();
-    expect(docs3.length).toEqual(100);
+    }
   });
+
+  // add the docs
+  const spy = jest.spyOn(collection.manifest, "saveToBlob");
+  const nowDate = new Date();
+  const now = Math.floor(nowDate.valueOf() / 1000);
+  let offsets = [];
+  for (let i = 0; i < 150; i++) {
+    offsets.push(-1 * Math.floor(Math.random() * 30 * 60));
+  }
+  for (let i = 0; i < 3; i++) {
+    offsets.push(Math.floor(Math.random() * 5 * 60));
+  }
+  offsets.sort((a, b) => a - b);
+  const docs = offsets.map(offset => ({
+    _id: ObjectID(now + offset).toString(),
+    name: faker.name.findName(),
+    email: faker.internet.email(),
+    phone: faker.phone.phoneNumber(),
+    address: faker.address.streetAddress(),
+    city: faker.address.city(),
+    state: faker.address.stateAbbr(),
+    zipCode: faker.address.zipCode()
+  }));
+  let remainingDocs = docs.slice();
+  while (remainingDocs.length) {
+    const batch = remainingDocs.slice(0, 10);
+    remainingDocs = remainingDocs.slice(10);
+    await Promise.all(
+      batch.map(doc => {
+        return collection.put(doc);
+      })
+    );
+  }
+  const directResponse = await client
+    .listObjectsV2({
+      Bucket: bucket,
+      MaxKeys: 100,
+      Prefix: `${prefix}${isoDate(nowDate)}/`,
+      Delimiter: "/"
+    })
+    .promise();
+  const directKeys = directResponse.Contents.map(e => e.Key);
+  expect(directKeys.length).toEqual(100);
+  expect(spy).toHaveBeenCalledTimes(1);
+
+  // get the list
+  const docs2 = await collection.list();
+  const unsortedKeys1 = takeRight(docs, 100).map(doc => doc._id);
+  const sortedKeys1 = unsortedKeys1.slice();
+  sortedKeys1.sort();
+  const unsortedKeys2 = docs2.map(doc => doc._id);
+  const sortedKeys2 = unsortedKeys2.slice();
+  sortedKeys2.sort();
+  expect(unsortedKeys1).toEqual(sortedKeys1);
+  expect(unsortedKeys2).toEqual(sortedKeys2);
+  expect(sortedKeys1.length).toEqual(sortedKeys2.length);
+  expect(sortedKeys1).toEqual(sortedKeys2);
+  expect(docs2.length).toEqual(100);
+  expect(docs2[docs2.length - 1]._id).toEqual(docs[docs.length - 1]._id);
+  expect(
+    Object.keys(docs2[0])
+      .slice()
+      .sort()
+  ).toEqual(["_id", "_etag", "name"].sort());
+
+  // get the list without the cache
+  await delay(2);
+  const getSpy = jest.spyOn(collection.getDatePartition(new Date()), "get");
+  collection.clearCache();
+  const docs3 = await collection.list();
+  expect(docs3.length).toEqual(100);
+  // expect(getSpy.mock.calls.length).toBeLessThan(10);
 });
 
 /*describe('list docs spread across days', () => {
