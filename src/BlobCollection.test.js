@@ -120,7 +120,7 @@ test("list docs within a day", async () => {
   expect(getSpy.mock.calls.length).toBeLessThan(10);
 });
 
-test("lists across days", async () => {
+async function testAcrossDays(daysAgoArray) {
   const bucket = `test-blob-collections-${ObjectID()}`;
   const prefix = "people/";
   await client.createBucket({ Bucket: bucket }).promise();
@@ -142,13 +142,15 @@ test("lists across days", async () => {
   const nowDate = new Date();
   const now = Math.floor(nowDate.valueOf() / 1000);
   let offsets = [];
-  for (let daysAgo = 0; daysAgo < 5; daysAgo++) {
+  daysAgoArray.forEach(daysAgo => {
     for (let i = 0; i < 30; i++) {
       offsets.push(daysAgo * -86400 + -1 * Math.floor(Math.random() * 30 * 60));
     }
-  }
-  for (let i = 0; i < 3; i++) {
-    offsets.push(Math.floor(Math.random() * 5 * 60));
+  });
+  if (daysAgoArray[0] === 0) {
+    for (let i = 0; i < 3; i++) {
+      offsets.push(Math.floor(Math.random() * 5 * 60));
+    }
   }
   offsets.sort((a, b) => a - b);
   const docs = offsets.map(offset => ({
@@ -180,9 +182,11 @@ test("lists across days", async () => {
     })
     .promise();
   const directKeys = directResponse.Contents.map(e => e.Key);
-  expect(directKeys.length).toEqual(33);
-  expect(spy).toHaveBeenCalledTimes(5);
-  expect(spy2.mock.calls.length).toBeGreaterThanOrEqual(1);
+  expect(spy.mock.calls.length).toBeGreaterThanOrEqual(5);
+  expect(spy.mock.calls.length).toBeLessThanOrEqual(6);
+  expect(spy2.mock.calls.length).toBeGreaterThanOrEqual(
+    daysAgoArray[0] === 0 ? 1 : 0
+  );
   expect(spy2.mock.calls.length).toBeLessThanOrEqual(3);
 
   // get the list
@@ -204,4 +208,12 @@ test("lists across days", async () => {
       .slice()
       .sort()
   ).toEqual(["_id", "_etag", "name"].sort());
+}
+
+test("test across days (consecutive)", async () => {
+  await testAcrossDays([0, 1, 2, 3, 4]);
+});
+
+test("test across days (sparse)", async () => {
+  await testAcrossDays([5, 12, 17, 18, 29]);
 });

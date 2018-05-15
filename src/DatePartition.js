@@ -175,7 +175,8 @@ class DatePartition {
     const loadedRecently =
       this.lastLoaded !== undefined && Date.now() - this.lastLoaded < 60 * 1000;
     if (!loadedRecently) {
-      await this.loadFromBlob();
+      this.loadPromise = this.loadFromBlob();
+      await this.loadPromise;
       this.loadPromise = undefined;
     }
   }
