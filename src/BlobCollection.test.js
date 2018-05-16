@@ -14,10 +14,10 @@ const client = new AWS.S3({
   httpOptions: { agent }
 });
 const BlobCollection = require("./BlobCollection");
-const delayMultiplier = process.env.CI === "true" ? 1.5 : 1;
 
-afterEach(() => {
+afterEach(async () => {
   jest.restoreAllMocks();
+  await delay(250);
 });
 
 test("put and get a document with an id", async () => {
@@ -79,7 +79,7 @@ test("list docs within a day", async () => {
         return collection.put(doc);
       })
     );
-    await delay(0.5 * delayMultiplier);
+    await delay(100);
   }
   const directResponse = await client
     .listObjectsV2({
@@ -117,7 +117,7 @@ test("list docs within a day", async () => {
   ).toEqual(["_id", "_etag", "name"].sort());
 
   // get the list without the cache
-  await delay(delayMultiplier * 2);
+  await delay(1500);
   const collection2 = new BlobCollection(collectionParams);
   const datePartition2 = collection2.getDatePartition(new Date());
   const loadSpy = jest.spyOn(datePartition2, "loadFromBlob");
@@ -180,7 +180,7 @@ async function testAcrossDays(daysAgoArray) {
         return collection.put(doc);
       })
     );
-    await delay(0.5 * delayMultiplier);
+    await delay(100);
   }
   const directResponse = await client
     .listObjectsV2({
@@ -220,11 +220,9 @@ async function testAcrossDays(daysAgoArray) {
 }
 
 test("test across days (consecutive)", async () => {
-  await delay(2 * delayMultiplier);
   await testAcrossDays([0, 1, 2, 3, 4]);
 });
 
 test("test across days (sparse)", async () => {
-  await delay(2 * delayMultiplier);
   await testAcrossDays([5, 12, 17, 18, 29]);
 });
