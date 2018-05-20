@@ -113,7 +113,7 @@ class DatePartition {
     return { _id: doc._id, _etag: doc._etag };
   }
 
-  async list(beforeCutoff: ?string, limit: number = 500) {
+  async list(beforeCutoff: ?string, limit: number = 100) {
     const cacheKey = JSON.stringify(["list", beforeCutoff, limit]);
     const cachedList = this.listCache.get(cacheKey);
     if (cachedList) {

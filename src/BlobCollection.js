@@ -48,7 +48,14 @@ class BlobCollection {
     this.datePartitions = {};
   }
 
-  async list(before?: Date | string, limit: number = 500): {}[] {
+  async list({
+    before,
+    limit
+  }: {
+    before?: Date | string,
+    limit: number
+  }): {}[] {
+    limit = limit || 100;
     let date: Date;
     let cutoff: ?string;
     if (typeof before === "string") {
