@@ -4,19 +4,21 @@ const sortedIndex = require("lodash").sortedIndex;
 const sortedUniq = require("lodash").sortedUniq;
 const isEqual = require("lodash").isEqual;
 const delay = require("./utils").delay;
+const LRUCache = require("lru-cache");
 
 class Manifest {
   store: S3Store;
   dates: string[];
-  lastUpdated: number;
   promise: Promise<any>;
   savePromise: ?Promise<any>;
   saveAgain: boolean;
+  dateCache: any;
 
   constructor({ store }: { store: S3Store }) {
     this.store = store;
     this.dates = [];
     this.saveAgain = false;
+    this.dateCache = LRUCache({ max: 5, maxAge: 120 * 1000 });
   }
 
   get client(): any {
@@ -33,16 +35,20 @@ class Manifest {
     return `${this.store.prefix}manifest.json`;
   }
 
-  getDatesBefore(date: string, limit: number): string[] {
+  async getDatesBefore(date: string, limit: number): Promise<string[]> {
+    await this.load();
     const index = sortedIndex(this.dates, date);
-    return this.dates.slice(index - limit, index);
+    return this.dates.slice(Math.max(0, index - limit), index);
   }
 
-  async load() {
+  async load(): Promise<void> {
+    if (this.dateCache.get("current")) {
+      return;
+    }
     if (!this.promise) {
       let updated = false;
       this.promise = Promise.race([
-        async () => {
+        (async () => {
           let data;
           try {
             data = await this.loadFromBlob();
@@ -54,8 +60,8 @@ class Manifest {
             this.loadJSON(data);
             updated = true;
           }
-        },
-        async () => {
+        })(),
+        (async () => {
           await delay(1000);
           if (updated) return;
           let dates;
@@ -68,10 +74,11 @@ class Manifest {
           if (datesChanged) {
             this.save();
           }
-        }
+        })()
       ]);
     }
-    return await this.promise;
+    await this.promise;
+    this.dateCache.set("current", true);
   }
 
   async loadFromBlob() {
@@ -135,6 +142,7 @@ class Manifest {
     const index = sortedIndex(this.dates, isoDate);
     if (this.dates[index] !== isoDate) {
       if (!loaded) {
+        this.dateCache.reset();
         await this.load();
         return await this.addDate(isoDate, true);
       }

@@ -79,7 +79,7 @@ class BlobCollection {
       docs = await datePartition.list({ limit });
     }
     if (docs.length < limit) {
-      let dates = this.manifest.getDatesBefore(dateString, 4);
+      let dates = await this.manifest.getDatesBefore(dateString, 4);
       for (let i = dates.length - 1; i >= 0; i--) {
         const dateString = dates[i];
         const datePartition = this.getDatePartition(dateString);
