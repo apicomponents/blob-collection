@@ -23,13 +23,13 @@ up when listing data. The views, through caching, allow metadata to be returned
 with a list of documents, without having to make a request for every key.
 
 The view data is cached for each date partition, and it is saved to the file a
-given amount of time (default 120 seconds) after a document within a partition
+certain amount of time (currently 1 second) after a document within a partition
 is updated. The metadata cache files are also used to find previous dates when
 paging through results. Document eTags are used in the metadata cache, along
-with the version of the view, so stale data will never be returned.
+with the version of the view, to prevent stale data from being returned.
 
-It's designed to prevent a lightly used app that has a lot of data in it from
-being expensive.
+It's intended to provide permanent storage that's inexpensive, yet sufficient
+for self-hosted apps.
 
 ## How it works
 
@@ -61,6 +61,11 @@ being expensive.
     the documents to get the view data.
   * If there aren't enough to satisfy the limit, goes to the previous date in
     the manifest and gets more, until it reaches the limit of dates to read.
+* Collection.clearListCache()
+  * This is to reduce _list_ requests which can be expensive, when polling.
+  * If there are multiple clients, a publish-subscribe should be set to call
+    this on all clients whenever `put()` is called. Otherwise lists on other
+    clients won't be updated for the maximum age of the cache (5 minutes).
 
 ## API
 
@@ -124,12 +129,17 @@ None yet.
 ## Roadmap
 
 * List documents after a given time
-* Cache lists of documents
-* Additional views
+* Cache lists of documents in storage
+* Additional views with keys other than creation date
+* Support storing view data in postgres to allow for more clients
+* Partitioned views
+* Detect other clients and increase polling when other clients are found, for
+  transparent scaling (intermittent pub sub)
 * Attachments
 * Subpartitions within dates
 * Other types of partitioning (such as by hour for logs)
-* Compression Store multiple documents in a single file, and batched writing
+* Compression
+* Store multiple documents in a single file, with batched writing
 * Use with another database (could make it work for big apps too)
 
 ## License

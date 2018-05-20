@@ -48,9 +48,9 @@ class BlobCollection {
     this.datePartitions = {};
   }
 
-  async list(before?: Date | string, limit: number = 100): {}[] {
+  async list(before?: Date | string, limit: number = 500): {}[] {
     let date: Date;
-    let cutoff: string;
+    let cutoff: ?string;
     if (typeof before === "string") {
       date = ObjectID(before).getTimestamp();
       cutoff = before;
@@ -61,7 +61,6 @@ class BlobCollection {
       )}`;
     } else {
       date = new Date(Date.now() + 10 * 60 * 1000);
-      cutoff = `${ObjectID(Math.floor(date / 1000))}`;
     }
 
     const dateString = isoDate(date);
@@ -73,7 +72,7 @@ class BlobCollection {
         const dateString = dates[i];
         const datePartition = this.getDatePartition(dateString);
         let previousDocs = await datePartition.list(
-          cutoff,
+          undefined,
           limit - docs.length
         );
         docs = previousDocs.concat(docs);
@@ -116,6 +115,12 @@ class BlobCollection {
     const docWithId = this.constructor.ensureStringId(doc);
     await this.getDatePartition(docWithId._id).put(docWithId);
     return { _id: docWithId._id };
+  }
+
+  clearListCache() {
+    values(this.datePartitions).forEach(datePartition => {
+      datePartition.clearListCache();
+    });
   }
 
   keyForDocument(id: string): string {

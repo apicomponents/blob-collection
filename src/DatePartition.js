@@ -5,6 +5,7 @@ const takeRight = require("lodash").takeRight;
 const compact = require("lodash").compact;
 const delay = require("./utils").delay;
 const Manifest = require("./Manifest");
+const LRUCache = require("lru-cache");
 
 import type { View, DocWithEtag } from "./types";
 
@@ -19,6 +20,7 @@ class DatePartition {
   saving: boolean;
   saveAgain: boolean;
   lastLoaded: ?number;
+  listCache: any;
 
   get client() {
     return this.store.client;
@@ -50,6 +52,7 @@ class DatePartition {
     this.manifest = manifest;
     this.date = date;
 
+    this.listCache = LRUCache({ max: 5, maxAge: 5 * 1000 });
     this.viewCache = {};
     this.saving = false;
     this.saveAgain = false;
@@ -106,12 +109,22 @@ class DatePartition {
     doc._etag = response.ETag;
     this.setViewData(doc);
     this.manifest.addDate(this.date);
+    this.clearListCache();
     return { _id: doc._id, _etag: doc._etag };
   }
 
-  async list(beforeCutoff: string, limit: number = 100) {
+  async list(beforeCutoff: ?string, limit: number = 500) {
+    const cacheKey = JSON.stringify(["list", beforeCutoff, limit]);
+    const cachedList = this.listCache.get(cacheKey);
+    if (cachedList) {
+      return cachedList;
+    }
+
     let ids = await this.listKeys();
-    ids = takeWhile(ids, ([id, etag]) => id < beforeCutoff);
+    if (typeof beforeCutoff === "string") {
+      // TODO: find out why flow doesn't respect beforeCutoff
+      ids = takeWhile(ids, ([id, etag]) => id < (beforeCutoff || "z"));
+    }
 
     let docs;
     await this.load();
@@ -128,6 +141,8 @@ class DatePartition {
       );
       docs = compact(docs);
     }
+
+    this.listCache.set(cacheKey, docs);
     return docs;
   }
 
@@ -225,6 +240,10 @@ class DatePartition {
     this.savePromise = this.saveToBlobAfterDelay();
     await this.savePromise;
     this.savePromise = undefined;
+  }
+
+  clearListCache() {
+    this.listCache.reset();
   }
 
   async saveToBlobAfterDelay(): Promise<void> {
