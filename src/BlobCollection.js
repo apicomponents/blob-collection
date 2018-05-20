@@ -48,40 +48,44 @@ class BlobCollection {
     this.datePartitions = {};
   }
 
-  async list({
-    before,
-    limit
-  }: {
-    before?: Date | string,
-    limit: number
-  }): {}[] {
-    limit = limit || 100;
+  async list(
+    options: {
+      before?: string,
+      beforeDate?: Date,
+      limit?: number
+    } = {}
+  ): {}[] {
+    const limit = options.limit || 100;
+    let before: ?string;
     let date: Date;
-    let cutoff: ?string;
-    if (typeof before === "string") {
-      date = ObjectID(before).getTimestamp();
-      cutoff = before;
-    } else if (before instanceof Date) {
-      date = before;
-      cutoff = `${ObjectID.createFromTime(
+    if (options.beforeDate) {
+      date = options.beforeDate;
+      before = `${ObjectID.createFromTime(
         Math.floor(date.valueOf() / 1000) + 1
       )}`;
+    } else if (options.before) {
+      date = ObjectID(before).getTimestamp();
+      before = options.before;
     } else {
       date = new Date(Date.now() + 10 * 60 * 1000);
     }
 
     const dateString = isoDate(date);
     const datePartition = this.getDatePartition(dateString);
-    let docs = await datePartition.list(cutoff, limit);
+    let docs;
+    if (before) {
+      docs = await datePartition.list({ before, limit });
+    } else {
+      docs = await datePartition.list({ limit });
+    }
     if (docs.length < limit) {
       let dates = this.manifest.getDatesBefore(dateString, 4);
       for (let i = dates.length - 1; i >= 0; i--) {
         const dateString = dates[i];
         const datePartition = this.getDatePartition(dateString);
-        let previousDocs = await datePartition.list(
-          undefined,
-          limit - docs.length
-        );
+        let previousDocs = await datePartition.list({
+          limit: limit - docs.length
+        });
         docs = previousDocs.concat(docs);
         if (docs.length === limit) {
           break;

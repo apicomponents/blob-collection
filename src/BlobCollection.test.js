@@ -125,9 +125,10 @@ test(
     const loadSpy = jest.spyOn(datePartition2, "loadFromBlob");
     const getSpy = jest.spyOn(datePartition2, "get");
     const listKeysSpy = jest.spyOn(datePartition2, "listKeys");
+    const docs3 = await collection2.list();
     for (let i = 0; i < 20; i++) {
       await delay(100);
-      const docs3 = await collection2.list();
+      const docs = await collection2.list();
     }
     expect(docs3.length).toEqual(100);
     expect(loadSpy.mock.calls.length).toBeGreaterThanOrEqual(1);

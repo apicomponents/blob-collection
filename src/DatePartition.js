@@ -113,17 +113,18 @@ class DatePartition {
     return { _id: doc._id, _etag: doc._etag };
   }
 
-  async list(beforeCutoff: ?string, limit: number = 100) {
-    const cacheKey = JSON.stringify(["list", beforeCutoff, limit]);
+  async list(options: { before?: string, limit?: number } = {}) {
+    const before: ?string = options.before;
+    const limit = options.limit || 100;
+    const cacheKey = JSON.stringify(["list", before, limit]);
     const cachedList = this.listCache.get(cacheKey);
     if (cachedList) {
       return cachedList;
     }
 
     let ids = await this.listKeys();
-    if (typeof beforeCutoff === "string") {
-      // TODO: find out why flow doesn't respect beforeCutoff
-      ids = takeWhile(ids, ([id, etag]) => id < (beforeCutoff || "z"));
+    if (before) {
+      ids = takeWhile(ids, ([id, etag]) => id < before);
     }
 
     let docs;
